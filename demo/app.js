@@ -191,21 +191,27 @@ function load(id, onProgress) {
   loads[id] = (async () => {
     const res = await fetch('assets/' + o.file);
     if (!res.ok) throw new Error(`${res.status} loading ${o.file}`);
+    // A gzipping server (GitHub Pages) reports the compressed length, so the
+    // total is only a progress estimate and the chunks are joined at the end.
     const total = Number(res.headers.get('content-length')) || 0;
     let buf;
     if (res.body && total) {
-      const out = new Uint8Array(total), rd = res.body.getReader();
+      const parts = [], rd = res.body.getReader();
       let got = 0;
       for (;;) {
         const { done, value } = await rd.read();
         if (done) break;
-        out.set(value, got); got += value.length;
-        onProgress && onProgress(got / total);
+        parts.push(value); got += value.length;
+        onProgress && onProgress(Math.min(1, got / total));
       }
+      const out = new Uint8Array(got);
+      let at = 0;
+      for (const p of parts) { out.set(p, at); at += p.length; }
       buf = out.buffer;
     } else buf = await res.arrayBuffer();
     compute.postMessage({ type: 'object', id, buf, yaw: o.yaw_deg || 0, pitch: o.pitch_deg || 0 }, [buf]);
   })();
+  loads[id].catch(() => delete loads[id]);   // a failed load can be retried
   return loads[id];
 }
 
@@ -239,19 +245,29 @@ async function request() {
       load(a, (f) => setNote('A', `loading ${byId[a].label.toLowerCase()}…`, f)),
       load(b, (f) => setNote('B', `loading ${byId[b].label.toLowerCase()}…`, f)),
     ]);
+    if (sel.A !== a || sel.B !== b) { busy = false; return request(); }
     compute.postMessage({ type: 'pair', job: my, a, b });
   } catch (err) {
-    busy = false;
-    setNote('M', 'Could not load the objects: ' + err.message);
+    fail('Could not load the objects: ' + err.message);
   }
+}
+
+// Leave the readout usable after a failure, and serve a selection made meanwhile.
+function fail(msg) {
+  busy = false;
+  $('live').classList.remove('busy');
+  $('badgeText').textContent = 'LIVE';
+  $('what').textContent = 'pick another pair to try again';
+  setNote('A', null); setNote('B', null);
+  setNote('M', msg);
+  if (queued) request();
 }
 
 compute.onmessage = (e) => {
   const d = e.data;
   if (d.job !== job) return;                 // a newer pair was asked for
   if (d.type === 'error') {
-    busy = false; $('live').classList.remove('busy');
-    setNote('M', 'Something went wrong: ' + d.message);
+    fail('Something went wrong: ' + d.message);
     return;
   }
   if (d.type === 'clouds') {
@@ -310,8 +326,11 @@ function refreshPickers() {
 // Frame loop: advance t and the sway, then draw each view in its own viewport.
 // ---------------------------------------------------------------------------
 let last = performance.now();
+let onScreen = true;                         // rest while scrolled away or hidden
+new IntersectionObserver((e) => { onScreen = e[e.length - 1].isIntersecting; }).observe($('stage'));
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!onScreen || document.hidden) { requestAnimationFrame(frame); return; }
   if (playing) { clock += dt; t = 0.5 - 0.5 * Math.cos(2 * Math.PI * clock / PERIOD); showT(); }
   if (sway) { swayClock += dt; az = az0 + SWAY * Math.sin(swayClock * 0.35); }
 
@@ -361,7 +380,7 @@ function frame(now) {
   sel.A = byId[q.get('a')] ? q.get('a') : manifest.default[0];
   sel.B = byId[q.get('b')] && q.get('b') !== sel.A ? q.get('b') : manifest.default[1];
   if (sel.B === sel.A) sel.B = manifest.objects.find((o) => o.id !== sel.A).id;
-  if (q.get('play') === '0') { setPlaying(false); t = Number(q.get('t')) || 0; }
+  if (q.get('play') === '0') { setPlaying(false); t = Math.min(1, Math.max(0, Number(q.get('t')) || 0)); }
   if (q.get('sway') === '0') sway = false;
   if (q.has('az')) az0 = az = Number(q.get('az'));
   if (q.has('el')) el = Number(q.get('el'));

@@ -95,8 +95,10 @@
     .trow { flex-wrap: wrap; justify-content: center; gap: 4px 8px; }
     .trow input { flex-basis: 100%; order: -1; }
     .live { padding: 3px 6px 4px; }
-    .obj { width: 48px; font-size: 10px; }
-    .obj img { width: 34px; height: 34px; }
+    .pick { display: grid; grid-template-columns: repeat(2, 46px); gap: 4px; }
+    .obj { width: 46px; font-size: 9.5px; padding: 2px 1px 1px; }
+    .obj[aria-pressed="true"] { padding: 1px 0 0; }
+    .obj img { width: 30px; height: 30px; }
     .count b { font-size: 15px; }
     .ms { font-size: 18px; }
     .tval { width: 46px; }
