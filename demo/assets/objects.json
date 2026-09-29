@@ -1,0 +1,43 @@
+{
+  "about": "The four objects of the live demo. Each file is used as released; yaw_deg turns an object about the shared up axis and pitch_deg then tilts it about the camera's horizontal axis, at load time, so that one camera shows every object well. The bonsai's -70.59 deg is the turn the paper applied to face it to the plant; the bee is tilted toward the camera because it is a flat body that reads only from above.",
+  "seed": 7,
+  "omega": 0.25,
+  "camera": {
+    "az": 3.14,
+    "el": -0.25
+  },
+  "default": [
+    "bonsai",
+    "plant"
+  ],
+  "objects": [
+    {
+      "id": "bonsai",
+      "label": "Bonsai",
+      "file": "bonsai.splat",
+      "yaw_deg": -70.59,
+      "pitch_deg": 0
+    },
+    {
+      "id": "plant",
+      "label": "House plant",
+      "file": "plant.splat",
+      "yaw_deg": 0,
+      "pitch_deg": 0
+    },
+    {
+      "id": "bee",
+      "label": "Bee",
+      "file": "bee.splat",
+      "yaw_deg": 90,
+      "pitch_deg": 35
+    },
+    {
+      "id": "duck",
+      "label": "Duck",
+      "file": "duck.splat",
+      "yaw_deg": -90,
+      "pitch_deg": 0
+    }
+  ]
+}
