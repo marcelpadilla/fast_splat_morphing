@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  Double-click this file to run the Fast Splat Morphing demo offline. No server,
+  no install: the assets and the worker are bundled under offline/ and read
+  straight off disk (see offline/boot.js). This is the same page as demo/index.html,
+  which is the version to use when served over HTTP.
+
+  <base> makes the demo's own relative paths (renderer.js, app.js, assets/...)
+  resolve inside demo/, so the untouched demo files are reused verbatim; the
+  bundled data is loaded from ../offline/.
+-->
+<base href="demo/">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fast Splat Morphing, live demo (offline)</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --accent: #930000; --ink: #1b1b1b; --muted: #6b6b6b; --line: rgba(0,0,0,0.10); }
+  * { box-sizing: border-box; }
+  /* One window: three views on top, their controls underneath. Nothing scrolls. */
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: #fff; color: var(--ink);
+    font: 14px/1.4 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .stage { position: relative; flex: 1 1 auto; min-height: 0; touch-action: pan-y; cursor: grab; }
+  .stage.dragging { cursor: grabbing; }
+  body.fullscreen .stage { touch-action: none; }
+  #gl { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  /* The three views. The canvas draws under them; these only carry labels. */
+  .row { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; pointer-events: none; }
+  .view { position: relative; }
+  .view + .view { border-left: 1px solid var(--line); }
+  .tag {
+    position: absolute; top: 8px; left: 10px; font-size: 12px; color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .tag b { color: var(--ink); font-weight: 600; }
+  .mid .tag { left: 50%; transform: translateX(-50%); white-space: nowrap; }
+  .note {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 8px; color: var(--muted); font-size: 13px; text-align: center;
+    padding: 0 10px;
+  }
+  .note[hidden] { display: none; }
+  .prog { width: 120px; height: 3px; border-radius: 2px; background: rgba(0,0,0,0.10); overflow: hidden; }
+  .prog i { display: block; height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease; }
+
+  /* Controls: a picker under each end, the morph's own readouts in the middle. */
+  .controls {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: start;
+    border-top: 1px solid var(--line); padding: 8px 46px 10px 6px;
+  }
+  /* the project page floats its full-screen button over the bottom right corner */
+  .side { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+  .count { font-variant-numeric: tabular-nums; text-align: center; line-height: 1.15; }
+  .count b { display: block; font-size: 20px; font-weight: 700; }
+  .count span { font-size: 12px; color: var(--muted); }
+  .pick { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+  .obj {
+    font: inherit; font-size: 11.5px; width: 62px; padding: 3px 2px 2px; border-radius: 6px;
+    border: 1px solid rgba(0,0,0,0.14); background: #fff; color: var(--ink); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.2;
+  }
+  .obj img { width: 44px; height: 44px; object-fit: contain; display: block; }
+  .obj:hover:not(:disabled) { border-color: var(--accent); }
+  .obj[aria-pressed="true"] { border: 2px solid var(--accent); padding: 2px 1px 1px; color: var(--accent); font-weight: 600; }
+  .obj:disabled { opacity: 0.3; cursor: default; }
+
+  .center { display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; padding: 0 4px; }
+  .trow { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 330px; }
+  .trow input { flex: 1 1 auto; min-width: 60px; accent-color: var(--accent); }
+  .tval { font-variant-numeric: tabular-nums; font-size: 13px; width: 58px; color: var(--muted); }
+  button.play {
+    font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--accent); background: #fff; color: var(--accent);
+  }
+  button.play:hover { background: var(--accent); color: #fff; }
+
+  /* The live readout. The badge pulses while the assignment is being built,
+     and the time flashes when a new one lands. */
+  .live {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    border: 1px solid rgba(147,0,0,0.25); border-radius: 8px; padding: 4px 12px 5px;
+    background: #fff; transition: background-color 1.2s ease;
+  }
+  .live.flash { background: #fff1c2; transition: none; }
+  .live .top { display: flex; align-items: center; gap: 7px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.08em; color: var(--accent);
+  }
+  .badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .live.busy .badge i { animation: pulse 0.8s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.25; transform: scale(0.7); } }
+  .ms { font-size: 22px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .ms small { font-size: 13px; font-weight: 600; }
+  .what { font-size: 11.5px; color: var(--muted); text-align: center; }
+
+  @media (max-width: 620px) {
+    .tag { font-size: 11px; left: 6px; top: 6px; }
+    .tag .long { display: none; }
+    .controls { grid-template-columns: 1fr 1.25fr 1fr; padding-right: 40px; }
+    .trow { flex-wrap: wrap; justify-content: center; gap: 4px 8px; }
+    .trow input { flex-basis: 100%; order: -1; }
+    .live { padding: 3px 6px 4px; }
+    .pick { display: grid; grid-template-columns: repeat(2, 46px); gap: 4px; }
+    .obj { width: 46px; font-size: 9.5px; padding: 2px 1px 1px; }
+    .obj[aria-pressed="true"] { padding: 1px 0 0; }
+    .obj img { width: 30px; height: 30px; }
+    .count b { font-size: 15px; }
+    .ms { font-size: 18px; }
+    .tval { width: 46px; }
+    .what { font-size: 10.5px; }
+  }
+  @media (pointer: coarse) { button.play { min-height: 34px; } }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <canvas id="gl" role="img" aria-label="Three views: the source splat object, the morph between it and the target, and the target"></canvas>
+    <div class="row">
+      <div class="view" id="vA"><span class="tag">A &middot; <b id="nameA"></b></span>
+        <div class="note" id="noteA"><span id="noteAText">loading…</span><span class="prog"><i id="progA"></i></span></div></div>
+      <div class="view mid" id="vM"><span class="tag"><b>morph</b><span class="long">, FSM assignment</span></span>
+        <div class="note" id="noteM"><span id="noteMText">waiting for both objects…</span></div></div>
+      <div class="view" id="vB"><span class="tag">B &middot; <b id="nameB"></b></span>
+        <div class="note" id="noteB"><span id="noteBText">loading…</span><span class="prog"><i id="progB"></i></span></div></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="side">
+      <div class="count"><b id="countA">&nbsp;</b><span>Gaussians</span></div>
+      <div class="pick" id="pickA" role="group" aria-label="Object A"></div>
+    </div>
+    <div class="center">
+      <div class="trow">
+        <button class="play" id="play" type="button">Pause</button>
+        <input type="range" id="t" min="0" max="1000" value="0" aria-label="Morph parameter t">
+        <span class="tval" id="tval">t = 0.00</span>
+      </div>
+      <div class="live" id="live" aria-live="polite">
+        <div class="top"><span class="badge"><i></i><span id="badgeText">LIVE</span></span>
+          <span class="ms" id="ms">&nbsp;</span></div>
+        <div class="what" id="what">the assignment, computed in your browser</div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="count"><b id="countB">&nbsp;</b><span>Gaussians</span></div>
+      <div class="pick" id="pickB" role="group" aria-label="Object B"></div>
+    </div>
+  </div>
+
+<!-- Bundled copies (offline/), then the unchanged demo files (demo/ via <base>). -->
+<script src="../offline/manifest.js"></script>
+<script src="../offline/worker-source.js"></script>
+<script src="../offline/boot.js"></script>
+<script src="renderer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
